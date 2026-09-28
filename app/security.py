@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -31,8 +32,7 @@ def create_access_token(user_id: int, role: str) -> str:
 def create_refresh_token(user_id: int) -> tuple[str, datetime]:
     """Long-lived opaque token. Only its SHA-256 hash is stored server-side."""
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    raw = f"{user_id}:{expires_at.timestamp()}:{hashlib.sha256(str(datetime.now(timezone.utc).timestamp()).encode()).hexdigest()}"
-    token = hashlib.sha256(raw.encode()).hexdigest() + hashlib.sha256(f"{raw}:extra".encode()).hexdigest()
+    token = secrets.token_urlsafe(48)
     return token, expires_at
 
 
