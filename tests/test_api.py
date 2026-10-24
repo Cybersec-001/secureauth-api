@@ -91,3 +91,29 @@ def test_login_rate_limited(client):
     ]
     assert codes[:5] == [200] * 5
     assert codes[5] == 429
+
+
+
+def test_login_unknown_email_still_runs_password_verify(client, monkeypatch):
+    """Unknown emails must pay the same bcrypt cost as known ones (no timing oracle)."""
+    import app.auth as auth_module
+
+    calls = []
+    original = auth_module.verify_password
+
+    def spy(plain, hashed):
+        calls.append(hashed)
+        return original(plain, hashed)
+
+    monkeypatch.setattr(auth_module, "verify_password", spy)
+
+    r = client.post("/auth/login", json={"email": "ghost@example.com", "password": "whatever123"})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Invalid email or password"
+    assert len(calls) == 1  # verify ran even though the user does not exist
+
+    make_user(client)
+    r = client.post("/auth/login", json={"email": "user@example.com", "password": "wrongpass99"})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Invalid email or password"
+    assert len(calls) == 2  # known email, wrong password: one verify as well
