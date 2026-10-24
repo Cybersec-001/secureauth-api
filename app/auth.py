@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,6 +14,12 @@ from .security import (create_access_token, create_refresh_token, hash_password,
                        hash_token, verify_password)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# Pre-computed bcrypt hash used to equalize login timing: unknown emails
+# still run one verification so response time does not reveal whether an
+# account exists (account-enumeration timing oracle).
+_DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
 
 
 def _issue_token_pair(user: User, db: Session) -> TokenPair:
@@ -39,7 +46,12 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
 @limiter.limit("5/minute")
 def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
-    if user is None or not verify_password(body.password, user.hashed_password):
+    if user is None:
+        # Burn one verification on a dummy hash so this path takes the
+        # same time as a real password check, then fail identically.
+        verify_password(body.password, _DUMMY_HASH)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+    if not verify_password(body.password, user.hashed_password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is deactivated")
@@ -80,3 +92,4 @@ def logout(body: RefreshRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
