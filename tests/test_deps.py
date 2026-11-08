@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from app.config import settings
 from app.database import Base, SessionLocal, engine
-from app.deps import get_current_user
+from app.deps import get_current_user, require_role
 from app.models import User
 from app.security import create_access_token, hash_password
 
@@ -68,3 +68,26 @@ def test_missing_credentials_get_401(db):
     with pytest.raises(HTTPException) as exc:
         get_current_user(None, db)
     assert exc.value.status_code == 401
+
+
+def test_deactivated_user_gets_401(db):
+    user = add_user(db)
+    user.is_active = False
+    db.commit()
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(creds(create_access_token(user.id, user.role)), db)
+    assert exc.value.status_code == 401
+
+
+def test_require_role_passes_matching_role(db):
+    user = add_user(db)
+    user.role = "admin"
+    db.commit()
+    assert require_role("admin")(user) is user
+
+
+def test_require_role_rejects_other_roles_with_403(db):
+    user = add_user(db)
+    with pytest.raises(HTTPException) as exc:
+        require_role("admin")(user)
+    assert exc.value.status_code == 403
